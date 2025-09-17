@@ -1,0 +1,23 @@
+[
+    {
+        "name": "ajnwdwna",
+        "email": "v@gmail.com",
+        "password": "cockisdl",
+        "role": "Developer",
+        "id": "1"
+    },
+    {
+        "name": "123",
+        "email": "matin@gmail.com",
+        "password": "cockisdl",
+        "role": "Developer",
+        "id": "2"
+    },
+    {
+        "name": "Matin",
+        "email": "matin@gmail.com",
+        "password": "cockisdl",
+        "role": "Developer",
+        "id": "3"
+    }
+]

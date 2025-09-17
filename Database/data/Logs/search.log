@@ -1,0 +1,2 @@
+[2025-09-13 19:44:52,838] WARNING | Missing role directories: ['Owner', 'Developer', 'Admin', 'Member']
+[2025-09-13 19:44:52,839] ERROR | No role directories found in C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\data

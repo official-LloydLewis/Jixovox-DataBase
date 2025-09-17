@@ -1,0 +1,52 @@
+[2025-09-13 19:33:54,471] INFO | Loaded 6 users from 4 files
+[2025-09-13 19:34:05,230] INFO | Loaded 6 users from 4 files
+[2025-09-13 19:38:17,452] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Owner\users.json
+[2025-09-13 19:38:17,453] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Developer\users.json
+[2025-09-13 19:38:17,454] INFO | Loaded 3 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Member\users.json
+[2025-09-13 19:38:17,454] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Admin\users.json
+[2025-09-13 19:38:17,454] INFO | Loaded total 6 users from 4 files
+[2025-09-13 19:45:15,547] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Owner\users.json
+[2025-09-13 19:45:15,548] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Admin\users.json
+[2025-09-13 19:45:15,548] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Developer\users.json
+[2025-09-13 19:45:15,548] INFO | Loaded 3 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Member\users.json
+[2025-09-13 19:45:15,549] INFO | Loaded total 6 users from 4 files
+[2025-09-14 21:49:44,131] INFO | Loaded 6 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Member\users.json
+[2025-09-14 21:49:44,132] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Admin\users.json
+[2025-09-14 21:49:44,132] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Developer\users.json
+[2025-09-14 21:49:44,134] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Owner\users.json
+[2025-09-14 21:49:44,134] INFO | Loaded total 9 users from 4 files
+[2025-09-14 22:02:46,523] ERROR | Unexpected error loading C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Owner\users.json: type object 'User' has no attribute 'from_dict'
+Traceback (most recent call last):
+  File "C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\search.py", line 219, in _load_file
+    user = User.from_dict(item)
+           ^^^^^^^^^^^^^^
+AttributeError: type object 'User' has no attribute 'from_dict'
+[2025-09-14 22:02:48,560] ERROR | Unexpected error loading C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Developer\users.json: type object 'User' has no attribute 'from_dict'
+Traceback (most recent call last):
+  File "C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\search.py", line 219, in _load_file
+    user = User.from_dict(item)
+           ^^^^^^^^^^^^^^
+AttributeError: type object 'User' has no attribute 'from_dict'
+[2025-09-14 22:02:50,569] ERROR | Unexpected error loading C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Admin\users.json: type object 'User' has no attribute 'from_dict'
+Traceback (most recent call last):
+  File "C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\search.py", line 219, in _load_file
+    user = User.from_dict(item)
+           ^^^^^^^^^^^^^^
+AttributeError: type object 'User' has no attribute 'from_dict'
+[2025-09-14 22:02:55,736] ERROR | Unexpected error loading C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Member\users.json: type object 'User' has no attribute 'from_dict'
+Traceback (most recent call last):
+  File "C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\search.py", line 219, in _load_file
+    user = User.from_dict(item)
+           ^^^^^^^^^^^^^^
+AttributeError: type object 'User' has no attribute 'from_dict'
+[2025-09-14 22:02:57,746] INFO | Loaded total 0 users from 4 files
+[2025-09-17 08:43:09,067] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Owner\users.json
+[2025-09-17 08:43:09,068] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Developer\users.json
+[2025-09-17 08:43:09,069] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Member\users.json
+[2025-09-17 08:43:09,069] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Admin\users.json
+[2025-09-17 08:43:09,069] INFO | Loaded total 4 users from 4 files
+[2025-09-17 10:00:44,589] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Owner\users.json
+[2025-09-17 10:00:44,687] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Admin\users.json
+[2025-09-17 10:00:44,687] INFO | Loaded 1 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Member\users.json
+[2025-09-17 10:00:44,687] INFO | Loaded 3 valid users from C:\Users\LloydLewis\Documents\GitHub\Jixovox\Database\Developer\users.json
+[2025-09-17 10:00:44,687] INFO | Loaded total 6 users from 4 files
