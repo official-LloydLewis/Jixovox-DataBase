@@ -1,11 +1,10 @@
 # Database/add_user.py
 """
 Secure CLI user registration script with:
-- Argon2 password hashing + per-user salt + global pepper
-- Fernet encryption for sensitive fields
-- gzip JSON Lines database per role
+- Argon2 password hashing + per-user salt + global pepper (with SHA-256 fallback)
+- Plain JSON array persistence per role folder
 - Rotating logs and stats tracking
-- prompt_toolkit for interactive UX
+- Optional prompt_toolkit enhancements with graceful degradation
 - Full type hints and structured exceptions
 """
 
@@ -13,20 +12,34 @@ import sys
 import os
 import re
 import json
-import gzip
+import hashlib
 import logging
 import traceback
 import secrets
 from pathlib import Path
 from datetime import datetime, UTC
 from typing import Any, Dict, List, Set
-from argon2 import PasswordHasher
 from logging.handlers import RotatingFileHandler
-from cryptography.fernet import Fernet, InvalidToken
-from prompt_toolkit import prompt
-from prompt_toolkit.completion import WordCompleter
-from prompt_toolkit.styles import Style as PTStyle
-from prompt_toolkit.patch_stdout import patch_stdout
+from contextlib import nullcontext
+from getpass import getpass
+
+try:  # Optional dependency: argon2
+    from argon2 import PasswordHasher  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - exercised in minimal envs
+    PasswordHasher = None  # type: ignore
+
+try:  # Optional dependency: prompt_toolkit
+    from prompt_toolkit import prompt as pt_prompt  # type: ignore
+    from prompt_toolkit.completion import WordCompleter  # type: ignore
+    from prompt_toolkit.styles import Style as PTStyle  # type: ignore
+    from prompt_toolkit.patch_stdout import patch_stdout  # type: ignore
+    PROMPT_TOOLKIT_AVAILABLE = True
+except ModuleNotFoundError:  # pragma: no cover - exercised in minimal envs
+    pt_prompt = None  # type: ignore
+    WordCompleter = None  # type: ignore
+    PTStyle = None  # type: ignore
+    patch_stdout = lambda: nullcontext()
+    PROMPT_TOOLKIT_AVAILABLE = False
 
 # -----------------------------
 # Constants / Configuration
@@ -37,15 +50,14 @@ LOG_FILE = BASE_DIR / "Logs" / "system_log.txt"
 STATS_FILE = BASE_DIR / "Logs" / "stats.json"
 # Use environment for pepper and encryption key for better security
 PEPPER = os.environ.get("APP_PEPPER", "static-pepper")
-ENC_KEY = os.environ.get("APP_ENC_KEY", Fernet.generate_key().decode())
 
 EMAIL_DOMAINS = ["@gmail.com", "@yahoo.com", "@outlook.com", "@protonmail.com"]
-EMAIL_COMPLETER = WordCompleter(EMAIL_DOMAINS, match_middle=True)
+EMAIL_COMPLETER = WordCompleter(EMAIL_DOMAINS, match_middle=True) if WordCompleter else None
 STYLE = PTStyle.from_dict({
     "completion-menu": "bg:#222222",
     "completion-menu.completion.current": "bg:#444444 fg:#ffffff",
     "completion-menu.completion": "bg:#222222 fg:#888888",
-})
+}) if PTStyle else None
 
 # -----------------------------
 # Logging setup
@@ -61,33 +73,34 @@ logging.basicConfig(
 # -----------------------------
 # Security utilities
 # -----------------------------
-ph = PasswordHasher()
-fernet = Fernet(ENC_KEY.encode())
+if PasswordHasher is not None:
+    ph = PasswordHasher()
+else:
+    ph = None
 login_attempts: Dict[str, int] = {}
-
-def encrypt_data(data: str) -> str:
-    """Encrypt text using Fernet symmetric encryption."""
-    return fernet.encrypt(data.encode()).decode()
-
-def decrypt_data(token: str) -> str:
-    """Decrypt token; return placeholder if unreadable."""
-    try:
-        return fernet.decrypt(token.encode()).decode()
-    except InvalidToken:
-        return "[UNREADABLE]"
 
 def hash_password(password: str) -> Dict[str, str]:
     """Return Argon2 hash and unique salt for given password."""
     salt = secrets.token_hex(16)
     salted_pw = password + salt + PEPPER
-    hashed = ph.hash(salted_pw)
-    return {"hash": hashed, "salt": salt}
+    if ph is not None:
+        hashed = ph.hash(salted_pw)
+        algo = "argon2"
+    else:
+        # Fallback when argon2-cffi is unavailable: use SHA-256 over salted input.
+        hashed = hashlib.sha256(salted_pw.encode()).hexdigest()
+        algo = "sha256"
+    return {"hash": hashed, "salt": salt, "algo": algo}
 
 def verify_password(stored: Dict[str, str], password: str) -> bool:
     """Verify password against stored hash+salt."""
+    salted_pw = password + stored.get("salt", "") + PEPPER
     try:
-        ph.verify(stored["hash"], password + stored["salt"] + PEPPER)
-        return True
+        if ph is not None and stored.get("algo") in (None, "argon2"):
+            ph.verify(stored["hash"], salted_pw)
+            return True
+        expected = hashlib.sha256(salted_pw.encode()).hexdigest()
+        return secrets.compare_digest(stored.get("hash", ""), expected)
     except Exception:
         return False
 
@@ -143,60 +156,64 @@ class Validator:
 # User database
 # -----------------------------
 class Users:
-    """
-    Manage users stored in gzip-compressed JSON Lines format per role folder.
-    Supports safe_mode for atomic full rewrites or faster append-only mode.
-    """
+    """Manage users stored in a JSON array per role folder."""
 
     def __init__(self, role_folder: Path, safe_mode: bool = False) -> None:
         self.role_folder = role_folder
-        self.db_file = role_folder / "users.jsonl.gz"
+        self.db_file = role_folder / "users.json"
         self.cache: List[Dict[str, Any]] = []
         self.email_index: Set[str] = set()
         self.safe_mode = safe_mode
         role_folder.mkdir(parents=True, exist_ok=True)
+        if not self.db_file.exists():
+            self._initialize_file()
         self._load_cache()
+
+    def _initialize_file(self) -> None:
+        """Create an empty JSON array file for users."""
+        with open(self.db_file, "w", encoding="utf-8") as f:
+            json.dump([], f, indent=4)
+            f.write("\n")
 
     def _load_cache(self) -> None:
         """Load all users into memory cache and email index."""
+        self.cache = []
+        self.email_index = set()
         if not self.db_file.exists():
             return
         try:
-            with gzip.open(self.db_file, "rt", encoding="utf-8") as f:
-                for line in f:
-                    user = json.loads(line)
+            with open(self.db_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, list):
+                raise DatabaseError("Users file must contain a JSON array.")
+            for user in data:
+                if isinstance(user, dict):
                     self.cache.append(user)
                     if "email" in user:
-                        self.email_index.add(user["email"])
+                        self.email_index.add(str(user["email"]))
         except Exception as e:
             raise DatabaseError(f"Load failed: {e}")
 
     def _save_full(self) -> None:
-        """Rewrite the entire database atomically (safe mode)."""
+        """Rewrite the entire database atomically."""
         tmp = self.db_file.with_suffix(".tmp")
-        with gzip.open(tmp, "wt", encoding="utf-8") as f:
-            for u in self.cache:
-                f.write(json.dumps(u) + "\n")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.cache, f, indent=4)
+            f.write("\n")
         tmp.replace(self.db_file)
-
-    def _append(self, user: Dict[str, Any]) -> None:
-        """Append new user to database for performance."""
-        with gzip.open(self.db_file, "at", encoding="utf-8") as f:
-            f.write(json.dumps(user) + "\n")
 
     def email_exists(self, email: str) -> bool:
         return email in self.email_index
 
     def add_user(self, user: Dict[str, Any]) -> None:
         """Add user and persist to storage."""
+        # Reload to ensure we have the latest data before appending.
+        self._load_cache()
         if self.email_exists(user["email"]):
             raise EmailExistsError("Email already exists.")
         self.cache.append(user)
         self.email_index.add(user["email"])
-        if self.safe_mode:
-            self._save_full()
-        else:
-            self._append(user)
+        self._save_full()
 
 # -----------------------------
 # Stats helpers
@@ -222,13 +239,24 @@ def update_stats(stats: Dict[str, Any]) -> None:
 # -----------------------------
 def ui_input(text: str, password: bool = False) -> str:
     """Prompt user with optional email completion and password masking."""
-    with patch_stdout():
-        val = prompt(
-            f"[SYSTEM] {text}",
-            is_password=password,
-            completer=EMAIL_COMPLETER if "Email" in text else None,
-            style=STYLE
-        ).strip()
+    prompt_text = f"[SYSTEM] {text}"
+    if PROMPT_TOOLKIT_AVAILABLE and pt_prompt is not None:
+        with patch_stdout():
+            val = pt_prompt(
+                prompt_text,
+                is_password=password,
+                completer=EMAIL_COMPLETER if "Email" in text else None,
+                style=STYLE
+            ).strip()
+    else:
+        try:
+            if password and sys.stdin.isatty():
+                val = getpass(prompt_text)
+            else:
+                val = input(prompt_text)
+        except EOFError:
+            raise ValidationError("Input stream closed.")
+        val = val.strip()
     if not val:
         raise ValidationError("Empty input.")
     # Basic sanitization to prevent injection in logs
@@ -259,8 +287,8 @@ def main() -> None:
         # Prepare user record
         user = {
             "id": str(new_id),
-            "name": encrypt_data(name),
-            "email": encrypt_data(email),
+            "name": name,
+            "email": email,
             "password": hashed_pw,
             "role": role,
             "created": datetime.now(UTC).isoformat()

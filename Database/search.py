@@ -15,19 +15,54 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# prompt_toolkit for interactive prompt
-from prompt_toolkit import prompt
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.patch_stdout import patch_stdout
-from prompt_toolkit.shortcuts import clear
-from prompt_toolkit.styles import Style as PTStyle
-from prompt_toolkit.key_binding import KeyBindings
+from contextlib import nullcontext
+from getpass import getpass
+
+# prompt_toolkit for interactive prompt (optional dependency)
+try:  # pragma: no cover - exercised in environments without prompt_toolkit
+    from prompt_toolkit import prompt as pt_prompt  # type: ignore
+    from prompt_toolkit.completion import Completer, Completion  # type: ignore
+    from prompt_toolkit.patch_stdout import patch_stdout  # type: ignore
+    from prompt_toolkit.shortcuts import clear as pt_clear  # type: ignore
+    from prompt_toolkit.styles import Style as PTStyle  # type: ignore
+    from prompt_toolkit.key_binding import KeyBindings as PTKeyBindings  # type: ignore
+    PROMPT_TOOLKIT_AVAILABLE = True
+except ModuleNotFoundError:  # pragma: no cover - fallback path
+    pt_prompt = None  # type: ignore
+    PROMPT_TOOLKIT_AVAILABLE = False
+
+    class Completer:  # type: ignore
+        """Fallback stub to satisfy type hints when prompt_toolkit missing."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class Completion:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            pass
+
+    def patch_stdout():
+        return nullcontext()
+
+    def pt_clear():
+        # Simple fallback: print a couple blank lines instead of full clear
+        print("\n" * 2)
+
+    class PTKeyBindings:  # type: ignore
+        def add(self, *args, **kwargs):
+            def decorator(func):
+                return func
+
+            return decorator
+
+    PTStyle = None  # type: ignore
 
 # Local utilities (colors and display_title are expected to exist)
 # They should provide ANSI color constants used below; if not present,
@@ -54,6 +89,8 @@ except Exception:
 # ----------------------
 # Constants / Config
 # ----------------------
+KeyBindings = PTKeyBindings  # Alias for unified usage below
+
 DEFAULT_USER_FILE = "users.json"
 DEFAULT_ROLES = ("Owner", "Developer", "Admin", "Member")
 DEFAULT_REQUIRED_FIELDS = frozenset({"id", "name", "email", "role"})
@@ -93,7 +130,7 @@ style = PTStyle.from_dict({
     'completion-menu': 'bg:#222222',
     'completion-menu.completion.current': 'bg:#444444 fg:#ffffff',
     'completion-menu.completion': 'bg:#222222 fg:#888888',
-})
+}) if PTStyle else None
 
 # ----------------------
 # Exceptions
@@ -139,6 +176,48 @@ def colored_role(role: str) -> str:
     fg_color, bracket_color = ROLE_COLORS.get(role_clean, (WHITE, WHITE))
     return f"{BRIGHT}{bracket_color}[{STYLE_RESET}{fg_color}{role_clean}{STYLE_RESET}{BRIGHT}{bracket_color}]{STYLE_RESET}"
 
+def clear_screen() -> None:
+    """Clear the console if possible, otherwise print spacing."""
+    if PROMPT_TOOLKIT_AVAILABLE:
+        try:
+            pt_clear()
+            return
+        except Exception:
+            pass
+    # Attempt OS-level clear; fallback to blank lines
+    command = "cls" if os.name == "nt" else "clear"
+    if os.system(command) != 0:
+        print("\n" * 2)
+
+def prompt_text(
+    message: str,
+    *,
+    is_password: bool = False,
+    completer=None,
+    style=None,
+    key_bindings=None,
+):
+    """Unified prompt helper that degrades gracefully without prompt_toolkit."""
+    if PROMPT_TOOLKIT_AVAILABLE and pt_prompt is not None:
+        kwargs: Dict[str, Any] = {"is_password": is_password}
+        if completer is not None:
+            kwargs["completer"] = completer
+        if style is not None:
+            kwargs["style"] = style
+        if key_bindings is not None:
+            kwargs["key_bindings"] = key_bindings
+        return pt_prompt(message, **kwargs)
+
+    try:
+        if is_password:
+            try:
+                return getpass(message)
+            except Exception:
+                pass
+        return input(message)
+    except EOFError as exc:
+        raise UserSearchError("Input stream closed.") from exc
+
 def user_to_display(user: User) -> str:
     return f"ID: {user.id} | {colored_role(user.role)} {user.name} | Email: {user.email}"
 
@@ -148,7 +227,7 @@ def show_error(message: str, pause: float = 2.0) -> None:
     print(f"{LRED}Error:{STYLE_RESET} {message}")
     print("-" * 60 + "\n")
     time.sleep(pause)
-    clear()
+    clear_screen()
 
 def ensure_roles_exist(database_dir: Path, roles: Tuple[str, ...]) -> List[Path]:
     """Check role directories exist; return list of existing role directory paths."""
@@ -431,7 +510,7 @@ async def main_async(args: argparse.Namespace) -> None:
 
     # Ask mode once at start
     mode_prompt = "Search by 'name' or 'email': "
-    mode = prompt(mode_prompt, style=style).strip().lower()
+    mode = prompt_text(mode_prompt, style=style).strip().lower()
     if mode not in {"name", "email"}:
         show_error("Invalid search mode. Use 'name' or 'email'.")
         return
@@ -451,7 +530,12 @@ async def main_async(args: argparse.Namespace) -> None:
     while True:
         try:
             with patch_stdout():
-                query = prompt("Search: ", completer=completer, style=style, key_bindings=kb)
+                query = prompt_text(
+                    "Search: ",
+                    completer=completer,
+                    style=style,
+                    key_bindings=kb,
+                )
         except KeyboardInterrupt:
             print("\nExiting search.")
             break
@@ -468,7 +552,7 @@ async def main_async(args: argparse.Namespace) -> None:
             show_error(f"Search error: {exc}")
             continue
 
-        clear()
+        clear_screen()
         display_results(results)
         log_action(mode, query, len(results), enable_logging)
 
