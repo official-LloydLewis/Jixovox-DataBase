@@ -1,4 +1,3 @@
-# Database/add_user.py
 """
 Secure CLI user registration script with:
 - Argon2 password hashing + per-user salt + global pepper
@@ -17,6 +16,7 @@ import gzip
 import logging
 import traceback
 import secrets
+import hashlib
 from pathlib import Path
 from datetime import datetime, UTC
 from typing import Any, Dict, List, Set
@@ -62,29 +62,34 @@ logging.basicConfig(
 # Security utilities
 # -----------------------------
 ph = PasswordHasher()
-fernet = Fernet(ENC_KEY.encode())
+try:
+    fernet = Fernet(ENC_KEY.encode())
+except Exception:
+    fernet = Fernet(Fernet.generate_key())
 login_attempts: Dict[str, int] = {}
 
+def _norm_email(e: str) -> str:
+    return e.strip().lower()
+
+def _hash_email(e: str) -> str:
+    return hashlib.sha256(_norm_email(e).encode()).hexdigest()
+
 def encrypt_data(data: str) -> str:
-    """Encrypt text using Fernet symmetric encryption."""
     return fernet.encrypt(data.encode()).decode()
 
 def decrypt_data(token: str) -> str:
-    """Decrypt token; return placeholder if unreadable."""
     try:
         return fernet.decrypt(token.encode()).decode()
     except InvalidToken:
         return "[UNREADABLE]"
 
 def hash_password(password: str) -> Dict[str, str]:
-    """Return Argon2 hash and unique salt for given password."""
     salt = secrets.token_hex(16)
     salted_pw = password + salt + PEPPER
     hashed = ph.hash(salted_pw)
     return {"hash": hashed, "salt": salt}
 
 def verify_password(stored: Dict[str, str], password: str) -> bool:
-    """Verify password against stored hash+salt."""
     try:
         ph.verify(stored["hash"], password + stored["salt"] + PEPPER)
         return True
@@ -100,14 +105,12 @@ class EmailExistsError(ValidationError): pass
 class DatabaseError(UserError): pass
 
 def log_exception(e: Exception) -> None:
-    """Log exception with traceback."""
     logging.error(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 # -----------------------------
 # Brute force protection
 # -----------------------------
 def check_brute_force(email: str) -> None:
-    """Limit login attempts per email to mitigate brute force."""
     attempts = login_attempts.get(email, 0)
     if attempts >= 5:
         raise ValidationError("Too many attempts, try again later.")
@@ -129,13 +132,12 @@ class Validator:
 
     @staticmethod
     def password(password: str) -> None:
-        # Password must include upper, lower, digit, and special char
         if (
             len(password) < 8
             or not re.search(r"[A-Z]", password)
             or not re.search(r"[a-z]", password)
             or not re.search(r"\d", password)
-            or not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password)
+            or not re.search(r'[!@#$%^&*(),.?":{}|<>]', password)
         ):
             raise ValidationError("Weak password.")
 
@@ -152,13 +154,12 @@ class Users:
         self.role_folder = role_folder
         self.db_file = role_folder / "users.jsonl.gz"
         self.cache: List[Dict[str, Any]] = []
-        self.email_index: Set[str] = set()
+        self.email_index: Set[str, int] = set()
         self.safe_mode = safe_mode
         role_folder.mkdir(parents=True, exist_ok=True)
         self._load_cache()
 
     def _load_cache(self) -> None:
-        """Load all users into memory cache and email index."""
         if not self.db_file.exists():
             return
         try:
@@ -167,12 +168,13 @@ class Users:
                     user = json.loads(line)
                     self.cache.append(user)
                     if "email" in user:
-                        self.email_index.add(user["email"])
+                        plain = decrypt_data(user["email"]) if user["email"] else ""
+                        if plain and plain != "[UNREADABLE]":
+                            self.email_index.add(_hash_email(plain))
         except Exception as e:
             raise DatabaseError(f"Load failed: {e}")
 
     def _save_full(self) -> None:
-        """Rewrite the entire database atomically (safe mode)."""
         tmp = self.db_file.with_suffix(".tmp")
         with gzip.open(tmp, "wt", encoding="utf-8") as f:
             for u in self.cache:
@@ -180,29 +182,56 @@ class Users:
         tmp.replace(self.db_file)
 
     def _append(self, user: Dict[str, Any]) -> None:
-        """Append new user to database for performance."""
         with gzip.open(self.db_file, "at", encoding="utf-8") as f:
             f.write(json.dumps(user) + "\n")
 
     def email_exists(self, email: str) -> bool:
-        return email in self.email_index
+        candidate = email
+        if "@" not in candidate:
+            candidate = decrypt_data(candidate)
+        return _hash_email(candidate) in self.email_index
 
     def add_user(self, user: Dict[str, Any]) -> None:
-        """Add user and persist to storage."""
-        if self.email_exists(user["email"]):
+        candidate = user.get("email", "")
+        if self.email_exists(candidate):
             raise EmailExistsError("Email already exists.")
         self.cache.append(user)
-        self.email_index.add(user["email"])
+        plain = decrypt_data(candidate) if "@" not in candidate else candidate
+        if plain and plain != "[UNREADABLE]":
+            self.email_index.add(_hash_email(plain))
         if self.safe_mode:
             self._save_full()
         else:
             self._append(user)
 
 # -----------------------------
+# Plaintext mirror for compatibility with other tools
+# -----------------------------
+def _mirror_plain_users_json(role_folder: Path, user_plain: Dict[str, Any]) -> None:
+    dst = role_folder / "users.json"
+    try:
+        existing = []
+        if dst.exists():
+            data = json.loads(dst.read_text("utf-8"))
+            if isinstance(data, list):
+                existing = data
+        by_key = {}
+        for u in existing:
+            key = (str(u.get("id")), _norm_email(str(u.get("email", ""))))
+            by_key[key] = u
+        key = (str(user_plain.get("id")), _norm_email(user_plain.get("email", "")))
+        by_key[key] = user_plain
+        merged = list(by_key.values())
+        tmp = dst.with_suffix(".tmp")
+        tmp.write_text(json.dumps(merged, indent=4, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(dst)
+    except Exception as e:
+        log_exception(e)
+
+# -----------------------------
 # Stats helpers
 # -----------------------------
 def load_stats() -> Dict[str, Any]:
-    """Load global stats JSON, return defaults if missing/corrupt."""
     if not STATS_FILE.exists():
         return {"User_Count": 0}
     try:
@@ -212,8 +241,7 @@ def load_stats() -> Dict[str, Any]:
         return {"User_Count": 0}
 
 def update_stats(stats: Dict[str, Any]) -> None:
-    """Update global stats file with pretty formatting."""
-    STATS_FILE.parent.mkdir(exist_ok=True)
+    STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(STATS_FILE, "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=4)
 
@@ -221,7 +249,6 @@ def update_stats(stats: Dict[str, Any]) -> None:
 # CLI input
 # -----------------------------
 def ui_input(text: str, password: bool = False) -> str:
-    """Prompt user with optional email completion and password masking."""
     with patch_stdout():
         val = prompt(
             f"[SYSTEM] {text}",
@@ -231,7 +258,6 @@ def ui_input(text: str, password: bool = False) -> str:
         ).strip()
     if not val:
         raise ValidationError("Empty input.")
-    # Basic sanitization to prevent injection in logs
     return re.sub(r"[<>\"']", "", val)
 
 # -----------------------------
@@ -241,22 +267,19 @@ def main() -> None:
     stats = load_stats()
     new_id = stats.get("User_Count", 0) + 1
     try:
-        # Gather and validate user inputs
         name = ui_input("Name: ")
         Validator.name(name)
-
         email = ui_input("Email: ")
         Validator.email(email)
-
         password = ui_input("Password: ", password=True)
         Validator.password(password)
         hashed_pw = hash_password(password)
-
         role = ui_input(f"Role ({', '.join(VALID_ROLES)}): ").capitalize()
         if role not in VALID_ROLES:
             raise ValidationError("Invalid role.")
-
-        # Prepare user record
+        users = Users(BASE_DIR / role)
+        if users.email_exists(email):
+            raise EmailExistsError("Email already exists.")
         user = {
             "id": str(new_id),
             "name": encrypt_data(name),
@@ -265,13 +288,17 @@ def main() -> None:
             "role": role,
             "created": datetime.now(UTC).isoformat()
         }
-
-        # Persist user
-        users = Users(BASE_DIR / role)
         users.add_user(user)
+        _mirror_plain_users_json(BASE_DIR / role, {
+            "id": str(new_id),
+            "name": name,
+            "email": email,
+            "password": hashed_pw,
+            "role": role,
+            "created": datetime.now(UTC).isoformat()
+        })
         stats["User_Count"] = new_id
         update_stats(stats)
-
         print("User added successfully.")
     except Exception as e:
         log_exception(e)

@@ -5,5 +5,27 @@
         "email": "ka@outlook.com",
         "password": "2ed32d63d77c580ef8f282e1fb4d5858a861bd7dd12dbf6a157e921169856588",
         "role": "Member"
+    },
+    {
+        "id": "14",
+        "name": "Solose",
+        "email": "mkmda@gmail.com",
+        "password": {
+            "hash": "$argon2id$v=19$m=65536,t=3,p=4$MIWXfz54VkCDvM3Pzm64GQ$AMtbam1/gTGJn7Y/VA2VEPluXD92o+qDH1XrwPEDLFg",
+            "salt": "b0920ef44e34c73a6a762906e3e2af70"
+        },
+        "role": "Member",
+        "created": "2025-10-03T06:41:08.604956+00:00"
+    },
+    {
+        "id": "15",
+        "name": "asdmkakw",
+        "email": "kamdw@gmail.com",
+        "password": {
+            "hash": "$argon2id$v=19$m=65536,t=3,p=4$Eb+0cFNjyf3imDmQ7ylz/g$+4SGVRSDv6x6K8LNC1+/h9MafsplmJWjfGzVH+8aLew",
+            "salt": "b2c959b2efb7f96c1ae2df8ba136aab0"
+        },
+        "role": "Member",
+        "created": "2025-10-03T06:41:32.403995+00:00"
     }
 ]

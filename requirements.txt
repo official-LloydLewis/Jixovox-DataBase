@@ -1,0 +1,20 @@
+# Core Security
+argon2-cffi==23.1.0
+cryptography==43.0.3
+
+# CLI / UX
+prompt-toolkit==3.0.48
+colorama==0.4.6   # Windows-friendly colors (fallback for Utils/colors)
+
+# Search
+rapidfuzz==3.9.7
+
+# File Monitoring
+watchdog==6.0.0
+
+# Utilities
+tqdm==4.66.5      # progress bars / loading animations
+tabulate==0.9.0   # pretty table display
+
+# JSON + Compression
+orjson==3.10.7    # faster JSON (optional, fallback to stdlib)
