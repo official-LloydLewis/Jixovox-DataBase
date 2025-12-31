@@ -1,6 +1,6 @@
 ---
 
-# 📂 JIXOVOX-DATABASE
+# 📂 JIXOVOX-DATABASE (v1.0)
 
 A modular **user and bot database management system** with secure authentication, CLI utilities, and role-based organization.
 The project provides tools for **adding, searching, updating, removing, and logging users** while ensuring **security, scalability, and usability**.
@@ -143,6 +143,15 @@ python Database/remove.py
 python Database/log_display.py
 ```
 
+### 🧭 Unified CLI entrypoint
+
+```bash
+python Database/cli.py --help
+python Database/cli.py add
+python Database/cli.py export
+python Database/cli.py backup --retention 5
+```
+
 ---
 
 ## 🔐 Security Highlights
@@ -157,8 +166,11 @@ python Database/log_display.py
 
 ## 📌 Roadmap / Improvements
 
-* [ ] Unified CLI entrypoint (instead of multiple scripts).
-* [ ] Export/Import utilities.
+* [x] Unified CLI entrypoint that wraps add/search/update/remove/export tasks.
+* [x] Automated backup workflow with retention (foundation for scheduling).
+* [x] End-to-end test suite covering export/import flows and data integrity checks.
+* [x] Configuration system (env file + overrides) for paths, keys, and limits.
+* [ ] Developer docs for extending roles and integrating with other apps.
 
 ---
 ## 📜 License
