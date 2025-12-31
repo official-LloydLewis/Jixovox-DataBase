@@ -170,6 +170,8 @@ python Database/cli.py backup --retention 5
 * [x] Automated backup workflow with retention (foundation for scheduling).
 * [x] End-to-end test suite covering export/import flows and data integrity checks.
 * [x] Configuration system (env file + overrides) for paths, keys, and limits.
+* [ ] End-to-end test suite covering CLI flows and data integrity.
+* [ ] Configuration system (env file + overrides) for paths, keys, and limits.
 * [ ] Developer docs for extending roles and integrating with other apps.
 
 ---
