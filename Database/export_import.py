@@ -6,6 +6,8 @@ Features
 - Export all role folders into a single JSON snapshot with metadata.
 - Import a snapshot in merge or replace mode with duplicate protection.
 - Lightweight validation of user objects and automatic stats refresh.
+- Backup helper with retention control.
+- CLI with explicit subcommands: ``export``, ``import``, and ``backup``.
 - CLI with explicit subcommands: ``export`` and ``import``.
 
 Usage examples
@@ -18,6 +20,10 @@ Import from a snapshot while replacing existing records::
 
     python Database/export_import.py import --file path/to/snapshot.json --mode replace
 
+Create a backup with retention (prunes older exports if over the limit)::
+
+    python Database/export_import.py backup --retention 5
+
 The utilities operate on the plain ``users.json`` files that back the
 interactive CLI tools.
 """
@@ -26,10 +32,32 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+try:
+    from Handler.config_loader import Config, load_config
+except Exception as exc:  # pragma: no cover - guarded fallback
+    raise ImportError("config_loader is required for export/import utilities") from exc
+
+
+DEFAULT_ROLES: Tuple[str, ...] = ("Owner", "Developer", "Admin", "Member", "Bot")
+USER_FILE = "users.json"
+REQUIRED_FIELDS = frozenset({"id", "name", "email", "role"})
+
+
+def _role_dir(cfg: Config, role: str) -> Path:
+    return cfg.database_dir / role
+
+
+def _load_role_users(cfg: Config, role: str, users_file: str) -> List[Dict[str, Any]]:
+    path = _role_dir(cfg, role) / users_file
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_ROLES: Tuple[str, ...] = ("Owner", "Developer", "Admin", "Member", "Bot")
@@ -59,6 +87,8 @@ def _load_role_users(role: str, users_file: str) -> List[Dict[str, Any]]:
     return data
 
 
+def _write_role_users(cfg: Config, role: str, users: List[Dict[str, Any]], users_file: str) -> None:
+    role_path = _role_dir(cfg, role)
 def _write_role_users(role: str, users: List[Dict[str, Any]], users_file: str) -> None:
     role_path = _role_dir(role)
     role_path.mkdir(parents=True, exist_ok=True)
@@ -109,6 +139,21 @@ def _reindex_ids(users: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return reindexed
 
 
+def _update_stats(cfg: Config, total_users: int) -> None:
+    cfg.stats_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"User_Count": total_users}
+    cfg.stats_file.write_text(json.dumps(payload, indent=4), encoding="utf-8")
+
+
+def export_database(
+    output: Path | None = None,
+    users_file: str = USER_FILE,
+    config: Config | None = None,
+) -> Path:
+    cfg = config or load_config()
+    cfg.exports_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    target = output or cfg.exports_dir / f"users-export-{timestamp}.json"
 def _update_stats(total_users: int) -> None:
     STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
     payload = {"User_Count": total_users}
@@ -131,6 +176,7 @@ def export_database(output: Path | None = None, users_file: str = USER_FILE) -> 
 
     total_users = 0
     for role in DEFAULT_ROLES:
+        users = _load_role_users(cfg, role, users_file)
         users = _load_role_users(role, users_file)
         snapshot["users"][role] = users
         total_users += len(users)
@@ -140,6 +186,16 @@ def export_database(output: Path | None = None, users_file: str = USER_FILE) -> 
     return target
 
 
+def import_database(
+    snapshot_path: Path,
+    mode: str = "merge",
+    users_file: str = USER_FILE,
+    config: Config | None = None,
+) -> Dict[str, Any]:
+    if not snapshot_path.exists():
+        raise FileNotFoundError(f"Snapshot not found: {snapshot_path}")
+
+    cfg = config or load_config()
 def import_database(snapshot_path: Path, mode: str = "merge", users_file: str = USER_FILE) -> Dict[str, Any]:
     if not snapshot_path.exists():
         raise FileNotFoundError(f"Snapshot not found: {snapshot_path}")
@@ -160,12 +216,43 @@ def import_database(snapshot_path: Path, mode: str = "merge", users_file: str = 
         incoming = [_normalize_user(user, role) for user in incoming_raw]
 
         if mode == "merge":
+            existing = _load_role_users(cfg, role, users_file)
             existing = _load_role_users(role, users_file)
             merged = _dedupe_users([*existing, *incoming])
         else:
             merged = _dedupe_users(incoming)
 
         merged = _reindex_ids(merged)
+        _write_role_users(cfg, role, merged, users_file)
+        imported_counts[role] = len(incoming)
+        total_after_import += len(merged)
+
+    _update_stats(cfg, total_after_import)
+    return {"roles_updated": imported_counts, "total_users": total_after_import}
+
+
+def prune_old_exports(cfg: Config, retention: int) -> None:
+    if retention <= 0:
+        return
+    if not cfg.exports_dir.exists():
+        return
+    exports = sorted(cfg.exports_dir.glob("users-export-*.json"))
+    excess = len(exports) - retention
+    for path in exports[:excess]:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+
+
+def run_backup(retention: int | None = None, config: Config | None = None) -> Path:
+    cfg = config or load_config()
+    retention_limit = retention if retention is not None else cfg.backup_retention
+    snapshot_path = export_database(config=cfg)
+    prune_old_exports(cfg, retention_limit)
+    return snapshot_path
+
+
         _write_role_users(role, merged, users_file)
         imported_counts[role] = len(incoming)
         total_after_import += len(merged)
@@ -187,6 +274,9 @@ def build_parser() -> argparse.ArgumentParser:
     import_parser.add_argument("--mode", choices=["merge", "replace"], default="merge", help="Merge with or replace existing data")
     import_parser.add_argument("--users-file", default=USER_FILE, help="Filename that stores users per role")
 
+    backup_parser = subparsers.add_parser("backup", help="Create an export and prune older ones")
+    backup_parser.add_argument("--retention", type=int, help="Number of exports to keep (defaults to configured value)")
+
     return parser
 
 
@@ -202,6 +292,9 @@ def main(argv: List[str] | None = None) -> None:
         for role, count in summary["roles_updated"].items():
             print(f"  {role}: {count} record(s) processed")
         print(f"Total users after import: {summary['total_users']}")
+    elif args.command == "backup":
+        destination = run_backup(retention=args.retention)
+        print(f"Backup created at: {destination}")
 
 
 if __name__ == "__main__":
