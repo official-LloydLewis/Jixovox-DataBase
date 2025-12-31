@@ -1,6 +1,6 @@
 ---
 
-# 📂 JIXOVOX-DATABASE
+# 📂 JIXOVOX-DATABASE (v1.0)
 
 A modular **user and bot database management system** with secure authentication, CLI utilities, and role-based organization.
 The project provides tools for **adding, searching, updating, removing, and logging users** while ensuring **security, scalability, and usability**.
