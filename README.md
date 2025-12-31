@@ -157,8 +157,11 @@ python Database/log_display.py
 
 ## 📌 Roadmap / Improvements
 
-* [ ] Unified CLI entrypoint (instead of multiple scripts).
-* [ ] Export/Import utilities.
+* [ ] Unified CLI entrypoint that wraps add/search/update/remove/export tasks.
+* [ ] Automated backup/restore workflow with scheduled exports.
+* [ ] End-to-end test suite covering CLI flows and data integrity.
+* [ ] Configuration system (env file + overrides) for paths, keys, and limits.
+* [ ] Developer docs for extending roles and integrating with other apps.
 
 ---
 ## 📜 License
