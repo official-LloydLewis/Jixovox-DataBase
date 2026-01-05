@@ -18,9 +18,10 @@ import logging
 import traceback
 import secrets
 import hashlib
+import time
 from pathlib import Path
 from datetime import datetime, UTC
-from typing import Any, Dict, List, Set
+from typing import Any, Callable, Dict, List, Set
 from argon2 import PasswordHasher
 from logging.handlers import RotatingFileHandler
 from cryptography.fernet import Fernet, InvalidToken
@@ -249,6 +250,12 @@ def update_stats(stats: Dict[str, Any]) -> None:
 # -----------------------------
 # CLI input
 # -----------------------------
+def _print_error_box(message: str) -> None:
+    red = "\033[1;31m"
+    reset = "\033[0m"
+    print(f"{red}===========================\nError: {message}\n==========================={reset}")
+
+
 def ui_input(text: str, password: bool = False) -> str:
     with patch_stdout():
         val = prompt(
@@ -261,21 +268,46 @@ def ui_input(text: str, password: bool = False) -> str:
         raise ValidationError("Empty input.")
     return re.sub(r"[<>\"']", "", val)
 
+
+def prompt_with_validation(
+    text: str,
+    validator: Callable[[str], None] | None = None,
+    password: bool = False,
+) -> str:
+    while True:
+        try:
+            value = ui_input(text, password=password)
+            if validator:
+                validator(value)
+            return value
+        except Exception as exc:
+            _print_error_box(str(exc))
+            time.sleep(1)
+            try:
+                from Utils.display_title import display_title
+                display_title()
+            except Exception:
+                pass
+
 # -----------------------------
 # Main flow
 # -----------------------------
 def main() -> None:
+    try:
+        from Utils.display_title import display_title
+        display_title()
+    except Exception:
+        pass
+
     stats = load_stats()
     new_id = stats.get("User_Count", 0) + 1
     try:
-        name = ui_input("Name: ")
-        Validator.name(name)
-        email = ui_input("Email: ")
-        Validator.email(email)
-        password = ui_input("Password: ", password=True)
-        Validator.password(password)
+        name = prompt_with_validation("Name: ", Validator.name)
+        email = prompt_with_validation("Email: ", Validator.email)
+        password = prompt_with_validation("Password: ", Validator.password, password=True)
         hashed_pw = hash_password(password)
-        role = ui_input(f"Role ({', '.join(VALID_ROLES)}): ").capitalize()
+        role = prompt_with_validation(f"Role ({', '.join(VALID_ROLES)}): ")
+        role = role.capitalize()
         if role not in VALID_ROLES:
             raise ValidationError("Invalid role.")
         users = Users(BASE_DIR / role)
