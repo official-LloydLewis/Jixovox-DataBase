@@ -256,14 +256,6 @@ def _print_error_box(message: str) -> None:
     print(f"{red}===========================\nError: {message}\n==========================={reset}")
 
 
-def _reset_screen_with_title() -> None:
-    try:
-        from Utils.display_title import display_title
-        display_title()
-    except Exception:
-        os.system("cls" if os.name == "nt" else "clear")
-
-
 def ui_input(text: str, password: bool = False) -> str:
     with patch_stdout():
         val = prompt(
@@ -291,13 +283,21 @@ def prompt_with_validation(
         except Exception as exc:
             _print_error_box(str(exc))
             time.sleep(1)
-            _reset_screen_with_title()
+            try:
+                from Utils.display_title import display_title
+                display_title()
+            except Exception:
+                pass
 
 # -----------------------------
 # Main flow
 # -----------------------------
 def main() -> None:
-    _reset_screen_with_title()
+    try:
+        from Utils.display_title import display_title
+        display_title()
+    except Exception:
+        pass
 
     stats = load_stats()
     new_id = stats.get("User_Count", 0) + 1
