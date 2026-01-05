@@ -8,7 +8,6 @@ Features
 - Lightweight validation of user objects and automatic stats refresh.
 - Backup helper with retention control.
 - CLI with explicit subcommands: ``export``, ``import``, and ``backup``.
-- CLI with explicit subcommands: ``export`` and ``import``.
 
 Usage examples
 --------------
@@ -58,25 +57,10 @@ def _role_dir(cfg: Config, role: str) -> Path:
 
 def _load_role_users(cfg: Config, role: str, users_file: str) -> List[Dict[str, Any]]:
     path = _role_dir(cfg, role) / users_file
-
-BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_ROLES: Tuple[str, ...] = ("Owner", "Developer", "Admin", "Member", "Bot")
-USER_FILE = "users.json"
-EXPORTS_DIR = BASE_DIR / "data" / "exports"
-STATS_FILE = BASE_DIR / "Logs" / "stats.json"
-REQUIRED_FIELDS = frozenset({"id", "name", "email", "role"})
-
-
-def _role_dir(role: str) -> Path:
-    return BASE_DIR / role
-
-
-def _load_role_users(role: str, users_file: str) -> List[Dict[str, Any]]:
-    path = _role_dir(role) / users_file
     if not path.exists():
         return []
 
-    content = path.read_text("utf-8")
+    content = path.read_text(encoding="utf-8")
     try:
         data = json.loads(content)
     except json.JSONDecodeError as exc:
@@ -89,8 +73,6 @@ def _load_role_users(role: str, users_file: str) -> List[Dict[str, Any]]:
 
 def _write_role_users(cfg: Config, role: str, users: List[Dict[str, Any]], users_file: str) -> None:
     role_path = _role_dir(cfg, role)
-def _write_role_users(role: str, users: List[Dict[str, Any]], users_file: str) -> None:
-    role_path = _role_dir(role)
     role_path.mkdir(parents=True, exist_ok=True)
     path = role_path / users_file
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -122,7 +104,6 @@ def _dedupe_users(users: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
         email_key = str(user.get("email", "")).lower()
         identifier = email_key or str(user.get("id", ""))
         if identifier in seen:
-            # Prefer the most recent entry by overwriting in place
             deduped[seen[identifier]] = user
         else:
             seen[identifier] = len(deduped)
@@ -154,16 +135,6 @@ def export_database(
     cfg.exports_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     target = output or cfg.exports_dir / f"users-export-{timestamp}.json"
-def _update_stats(total_users: int) -> None:
-    STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"User_Count": total_users}
-    STATS_FILE.write_text(json.dumps(payload, indent=4), encoding="utf-8")
-
-
-def export_database(output: Path | None = None, users_file: str = USER_FILE) -> Path:
-    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    target = output or EXPORTS_DIR / f"users-export-{timestamp}.json"
 
     snapshot: Dict[str, Any] = {
         "metadata": {
@@ -177,7 +148,6 @@ def export_database(output: Path | None = None, users_file: str = USER_FILE) -> 
     total_users = 0
     for role in DEFAULT_ROLES:
         users = _load_role_users(cfg, role, users_file)
-        users = _load_role_users(role, users_file)
         snapshot["users"][role] = users
         total_users += len(users)
 
@@ -194,13 +164,12 @@ def import_database(
 ) -> Dict[str, Any]:
     if not snapshot_path.exists():
         raise FileNotFoundError(f"Snapshot not found: {snapshot_path}")
+    if mode not in {"merge", "replace"}:
+        raise ValueError("mode must be 'merge' or 'replace'")
 
     cfg = config or load_config()
-def import_database(snapshot_path: Path, mode: str = "merge", users_file: str = USER_FILE) -> Dict[str, Any]:
-    if not snapshot_path.exists():
-        raise FileNotFoundError(f"Snapshot not found: {snapshot_path}")
 
-    raw = json.loads(snapshot_path.read_text("utf-8"))
+    raw = json.loads(snapshot_path.read_text(encoding="utf-8"))
     users_section = raw.get("users")
     if not isinstance(users_section, dict):
         raise ValueError("Snapshot is missing a valid 'users' section")
@@ -208,16 +177,13 @@ def import_database(snapshot_path: Path, mode: str = "merge", users_file: str = 
     imported_counts: Dict[str, int] = {}
     total_after_import = 0
 
-    for role, entries in users_section.items():
-        if role not in DEFAULT_ROLES:
-            continue
-
+    for role in DEFAULT_ROLES:
+        entries = users_section.get(role, [])
         incoming_raw = entries if isinstance(entries, list) else []
         incoming = [_normalize_user(user, role) for user in incoming_raw]
 
         if mode == "merge":
             existing = _load_role_users(cfg, role, users_file)
-            existing = _load_role_users(role, users_file)
             merged = _dedupe_users([*existing, *incoming])
         else:
             merged = _dedupe_users(incoming)
@@ -251,14 +217,6 @@ def run_backup(retention: int | None = None, config: Config | None = None) -> Pa
     snapshot_path = export_database(config=cfg)
     prune_old_exports(cfg, retention_limit)
     return snapshot_path
-
-
-        _write_role_users(role, merged, users_file)
-        imported_counts[role] = len(incoming)
-        total_after_import += len(merged)
-
-    _update_stats(total_after_import)
-    return {"roles_updated": imported_counts, "total_users": total_after_import}
 
 
 def build_parser() -> argparse.ArgumentParser:
