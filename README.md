@@ -9,11 +9,12 @@ The project provides tools for **adding, searching, updating, removing, and logg
 
 ## 🚀 Features
 
-* **Secure User Management**
+* **Secure User Management (Database/add.py)**
 
   * Password hashing with **Argon2** + per-user salt + global pepper.
   * Fernet encryption for sensitive fields.
   * Strict validation (strong passwords, valid emails, unique IDs).
+  * Brute-force attempt tracking and immediate red error prompts with re-entry.
 
 * **Role-Based Organization**
 
@@ -27,15 +28,15 @@ The project provides tools for **adding, searching, updating, removing, and logg
 
 * **CLI Utilities**
 
-  * Interactive prompts with **prompt\_toolkit** (autocomplete, colored UI, keyboard shortcuts).
-  * Search with **fuzzy matching** (via rapidfuzz).
-  * Real-time **log viewer** with watchdog support.
+  * Interactive prompts with **prompt\_toolkit** (autocomplete, colored UI, keyboard shortcuts) in add/search/update flows.
+  * Search with **fuzzy matching** (via rapidfuzz) in `Database/search.py`.
+  * Real-time **log viewer** using watchdog in `Database/log_display.py`.
 
 * **Robust Database Handling**
 
-  * JSONL + gzip for efficient storage.
-  * Append-only and full-save modes.
-  * Thread-safe operations with caching.
+  * JSONL + gzip persistence for the add workflow (`Database/add.py`) plus plaintext mirrors for interoperability.
+  * Thread-safe operations with caching in `Database/USERS.py`.
+  * Config-driven paths via `Handler/config_loader.py` and reusable storage adapter in `Database/storage.py`.
 
 * **Logging & Stats**
 
@@ -171,7 +172,6 @@ python Database/cli.py backup --retention 5
 * [x] End-to-end test suite covering export/import flows and data integrity checks.
 * [x] Configuration system (env file + overrides) for paths, keys, and limits.
 * [ ] End-to-end test suite covering CLI flows and data integrity.
-* [ ] Configuration system (env file + overrides) for paths, keys, and limits.
 * [ ] Developer docs for extending roles and integrating with other apps.
 
 ---

@@ -1,8 +1,11 @@
+# Script update for Jixovox database utilities - updated 2026-01-05 09:37 UTC by lloydlewis
 import json
 import re
 from pathlib import Path
 from threading import Lock
 from typing import List, Dict, Optional
+
+from Handler.config_loader import Config, load_config
 
 
 class Users:
@@ -25,13 +28,14 @@ class Users:
     _cache: Dict[str, List[Dict]] = {}
     _lock = Lock()
 
-    def __init__(self, base_dir: Optional[Path] = None):
+    def __init__(self, base_dir: Optional[Path] = None, config: Optional[Config] = None):
         """
         Initialize the Users manager.
 
         :param base_dir: Base directory for role folders. Defaults to script directory.
         """
-        self.BASE_DIR = base_dir or Path(__file__).resolve().parent
+        self.config = config or load_config()
+        self.BASE_DIR = Path(base_dir or self.config.database_dir)
         self._ensure_role_folders()
 
     def _ensure_role_folders(self):
@@ -122,8 +126,7 @@ class Users:
             users.append(user_info)
             self._write_data(role, users)
 
-    @classmethod
-    def is_duplicate(cls, name: str, email: str) -> bool:
+    def is_duplicate(self, name: str, email: str) -> bool:
         """
         Check if a user with the same name or email exists across all roles.
 
@@ -131,18 +134,12 @@ class Users:
         :param email: Email of user.
         :return: True if duplicate exists, False otherwise.
         """
-        for role in cls.VALID_ROLES:
-            role_folder = Path(__file__).resolve().parent / role
-            users_file = role_folder / 'users.json'
-            if users_file.exists():
-                try:
-                    with open(users_file, 'r', encoding='utf-8') as f:
-                        users = json.load(f)
-                        for user in users:
-                            if user.get('name') == name or user.get('email') == email:
-                                return True
-                except json.JSONDecodeError:
-                    continue
+        # Align duplicate detection with configured base_dir and cached reads
+        with self._lock:
+            for role in self.VALID_ROLES:
+                for user in self._read_data(role):
+                    if user.get('name') == name or user.get('email') == email:
+                        return True
         return False
 
     def list_all_users(self) -> List[Dict]:
