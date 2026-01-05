@@ -1,3 +1,4 @@
+# Script update for Jixovox database utilities - updated 2026-01-05 09:37 UTC by lloydlewis
 """
 Utilities for exporting and importing role-based user data.
 
@@ -34,6 +35,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -42,6 +44,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 try:
     from Handler.config_loader import Config, load_config
+    from Database.storage import JsonStorageAdapter, StorageAdapter
 except Exception as exc:  # pragma: no cover - guarded fallback
     raise ImportError("config_loader is required for export/import utilities") from exc
 
@@ -49,35 +52,6 @@ except Exception as exc:  # pragma: no cover - guarded fallback
 DEFAULT_ROLES: Tuple[str, ...] = ("Owner", "Developer", "Admin", "Member", "Bot")
 USER_FILE = "users.json"
 REQUIRED_FIELDS = frozenset({"id", "name", "email", "role"})
-
-
-def _role_dir(cfg: Config, role: str) -> Path:
-    return cfg.database_dir / role
-
-
-def _load_role_users(cfg: Config, role: str, users_file: str) -> List[Dict[str, Any]]:
-    path = _role_dir(cfg, role) / users_file
-    if not path.exists():
-        return []
-
-    content = path.read_text(encoding="utf-8")
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON in {path}: {exc}") from exc
-
-    if not isinstance(data, list):
-        raise ValueError(f"Unexpected content in {path}: expected a list of users")
-    return data
-
-
-def _write_role_users(cfg: Config, role: str, users: List[Dict[str, Any]], users_file: str) -> None:
-    role_path = _role_dir(cfg, role)
-    role_path.mkdir(parents=True, exist_ok=True)
-    path = role_path / users_file
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(users, indent=4, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
 
 
 def _normalize_user(user: Dict[str, Any], role: str) -> Dict[str, Any]:
@@ -120,18 +94,20 @@ def _reindex_ids(users: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return reindexed
 
 
-def _update_stats(cfg: Config, total_users: int) -> None:
-    cfg.stats_file.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"User_Count": total_users}
-    cfg.stats_file.write_text(json.dumps(payload, indent=4), encoding="utf-8")
+@dataclass(frozen=True)
+class ImportSummary:
+    roles_updated: Dict[str, int]
+    total_users: int
 
 
 def export_database(
     output: Path | None = None,
     users_file: str = USER_FILE,
     config: Config | None = None,
+    storage: StorageAdapter | None = None,
 ) -> Path:
-    cfg = config or load_config()
+    adapter = storage or JsonStorageAdapter(config or load_config())
+    cfg = adapter.config
     cfg.exports_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     target = output or cfg.exports_dir / f"users-export-{timestamp}.json"
@@ -147,7 +123,7 @@ def export_database(
 
     total_users = 0
     for role in DEFAULT_ROLES:
-        users = _load_role_users(cfg, role, users_file)
+        users = adapter.load_role_users(role, users_file)
         snapshot["users"][role] = users
         total_users += len(users)
 
@@ -161,13 +137,14 @@ def import_database(
     mode: str = "merge",
     users_file: str = USER_FILE,
     config: Config | None = None,
-) -> Dict[str, Any]:
+    storage: StorageAdapter | None = None,
+) -> ImportSummary:
     if not snapshot_path.exists():
         raise FileNotFoundError(f"Snapshot not found: {snapshot_path}")
     if mode not in {"merge", "replace"}:
         raise ValueError("mode must be 'merge' or 'replace'")
 
-    cfg = config or load_config()
+    adapter = storage or JsonStorageAdapter(config or load_config())
 
     raw = json.loads(snapshot_path.read_text(encoding="utf-8"))
     users_section = raw.get("users")
@@ -183,18 +160,18 @@ def import_database(
         incoming = [_normalize_user(user, role) for user in incoming_raw]
 
         if mode == "merge":
-            existing = _load_role_users(cfg, role, users_file)
+            existing = adapter.load_role_users(role, users_file)
             merged = _dedupe_users([*existing, *incoming])
         else:
             merged = _dedupe_users(incoming)
 
         merged = _reindex_ids(merged)
-        _write_role_users(cfg, role, merged, users_file)
+        adapter.write_role_users(role, merged, users_file)
         imported_counts[role] = len(incoming)
         total_after_import += len(merged)
 
-    _update_stats(cfg, total_after_import)
-    return {"roles_updated": imported_counts, "total_users": total_after_import}
+    adapter.update_stats(total_after_import)
+    return ImportSummary(roles_updated=imported_counts, total_users=total_after_import)
 
 
 def prune_old_exports(cfg: Config, retention: int) -> None:
@@ -211,10 +188,15 @@ def prune_old_exports(cfg: Config, retention: int) -> None:
             continue
 
 
-def run_backup(retention: int | None = None, config: Config | None = None) -> Path:
-    cfg = config or load_config()
-    retention_limit = retention if retention is not None else cfg.backup_retention
-    snapshot_path = export_database(config=cfg)
+def run_backup(
+    retention: int | None = None,
+    config: Config | None = None,
+    storage: StorageAdapter | None = None,
+) -> Path:
+    adapter = storage or JsonStorageAdapter(config or load_config())
+    cfg = adapter.config
+    retention_limit = retention if retention is not None else adapter.config.backup_retention
+    snapshot_path = export_database(config=cfg, storage=adapter)
     prune_old_exports(cfg, retention_limit)
     return snapshot_path
 
@@ -247,9 +229,9 @@ def main(argv: List[str] | None = None) -> None:
     elif args.command == "import":
         summary = import_database(args.file, mode=args.mode, users_file=args.users_file)
         print("Import complete")
-        for role, count in summary["roles_updated"].items():
+        for role, count in summary.roles_updated.items():
             print(f"  {role}: {count} record(s) processed")
-        print(f"Total users after import: {summary['total_users']}")
+        print(f"Total users after import: {summary.total_users}")
     elif args.command == "backup":
         destination = run_backup(retention=args.retention)
         print(f"Backup created at: {destination}")

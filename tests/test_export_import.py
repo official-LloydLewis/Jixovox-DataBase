@@ -1,7 +1,11 @@
+# Script update for Jixovox database utilities - updated 2026-01-05 09:37 UTC by lloydlewis
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from Handler.config_loader import load_config
 from Database import export_import
@@ -53,7 +57,7 @@ class ExportImportTest(unittest.TestCase):
         snapshot.write_text(json.dumps(snapshot_data), encoding="utf-8")
 
         summary = export_import.import_database(snapshot, mode="replace", config=self.config)
-        self.assertEqual(summary["roles_updated"]["Owner"], 1)
+        self.assertEqual(summary.roles_updated["Owner"], 1)
 
         owner_file = self.db_root / "Owner" / export_import.USER_FILE
         current = json.loads(owner_file.read_text(encoding="utf-8"))
